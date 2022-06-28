@@ -1,0 +1,712 @@
+---
+title: "SEMINARIO El imprescindible “kit” de herramientas de R"
+subtitle: "Informes reproducibles"
+author: "Michal Kinel"
+date:  "`r format(Sys.time(), '%A, %d %B %Y')`"
+output:
+  html_document:
+    toc: yes
+    theme: readable
+    code_folding: hide
+    fontsize: 12pt
+    fontfamily: Lato
+---
+
+
+# Calidad del aire en Madrid {#cal-aire}
+
+Para el análisis se utilizarán los datos abiertos proporcionados por el portal [Portal de datos abiertos del Ayuntamiento de Madrid](https://datos.madrid.es/). Concretamente, los facilitados por [el Sistema Integral de la Calidad del Aire del Ayuntamiento de Madrid](https://www.mambiente.madrid.es/sica/scripts/index.php), que pone a disposición los datos de los contaminantes registrados por las estaciones de medición situadas en Madrid. Los datos son de frecuencia horaria por anualidades desde 2001 y los datos se actualizan de forma mensual.
+
+Además, existe una API para obtener los datos en tiempo real.
+
+::: infobox
+**NOTA IMPORTANTE**:
+
+los conjuntos de datos de la **calidad de aire** son complejos y en algunos casos los datos no pueden utilizarse tal cual y pueden requerir consideraciones cuidadosas antes de llegar a cualquier conclusión. Debe prestarse atención a la existencia de subgrupos.
+:::
+
+**¿Dónde se han medido los contaminantes del aire?**
+
+Aunque los datos en bruto no son inmediatos de tratar, existe una amplia comunidad de personas que comparten su código y tratan los datos de forma que sean más inmediatos para su uso.
+
+Existe código en GitHub como el repositorio [michal0091/aire_madrid](https://github.com/michal0091/aire_madrid) que trata los datos brutos, facilitando su uso. Las ventajas del uso del código compartido de forma pública son:
+
+-   la transparencia: tenemos acceso al código y sus versiones
+
+-   mantenimiento: en GitHUb es muy fácil saber cuándo fue la última actualización
+
+-   interacción: si detectamos un error siempre se puede abrir un **issue** para avisar al propietario o incluso solicitar un permiso de push y corregir el error
+
+## Libaries & Data
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+Cargamos o instalamos las librerías si no las tenemos instaldas 
+
+```{r libraries & data}
+# Establecemos el directorio de trabajo en la misma carpeta del repo
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Uncoment to install
+# install.packages("raster", dependencies = TRUE) # no permitir el binario 
+# install.packages("terra", dependencies = TRUE)  
+# install.packages("gstat", dependencies = TRUE)  
+# 
+# install.packages(c("tidyverse", "lubridate", "ggridges", "ggrepel", "gganimate", "viridis", "hrbrthemes", "ggstatsplot", "sf", "mapSpain"), dependencies = TRUE)
+
+# Libraries  
+library(gstat) # Estadística espacial
+ 
+library(tidyverse) # Kit de libraries para data science
+
+library(lubridate) # Manejo de fechas 
+
+# Libaries para gráficos
+library(ggridges)
+library(ggrepel)
+library(gganimate)
+library(viridis)
+library(hrbrthemes)
+library(ggstatsplot)
+
+# Libraries para manejo de datos espaciales 
+library(sf)
+library(mapSpain)
+library(raster)
+
+
+# Data
+air_mad <- readr::read_rds("dt_daily_mean_2011.RDS")
+
+```
+
+
+
+
+## Análisis exploratorio de datos
+
+Una buena manera para ver los datos es presentar sus primeras líneas:
+
+```{r}
+head(air_mad)
+```
+
+Para ver la dimensión de la tabla de datos:
+
+```{r}
+dim(air_mad)
+```
+
+Luego se trata de 521388 filas y 12 columnas.
+
+Una de las funciones más básicas para ver la estructura de los datos es la función `str()`. Éste es el que debería de ser uno de los primeros pasos al analizar un *dataset* nuevo:
+
+```{r}
+str(air_mad)
+```
+
+En la salida observamos que se trata de un data.frame del tipo data.table, la dimensión de los datos, las variables y su clase. Las clases que aparecen son:
+
+-   **chr:** `"character"` se trata de una cadena de texto
+
+-   **num:** `"numeric"` se trata de un vector numérico
+
+-   **Date:** `"Date"` formato de fecha. Internamente, los objetos `Date` se almacenan como el número de días desde el 1 de enero de 1970, utilizando números negativos para fechas anteriores. La función `as.numeric()` puede utilizarse para convertir un objeto Date a su forma interna.
+
+Dado que queremos trabajar con **tidyverse** vamos a convertir este tipo de tabla en una **tibble.**
+
+```{r}
+air_mad <- as_tibble(air_mad)
+```
+
+Veamos si la clase ha cambiado:
+
+```{r}
+class(air_mad)
+```
+
+Ahora estamos trabajando con un objeto tibble.
+
+La función `summary()` proporciona una salida estadística estándar para cada columna:
+
+```{r}
+summary(air_mad)
+
+```
+
+
+Otra forma muy común en ciencia de datos de hacer un summary es mediante
+la función `skim()` de la librería `skmimr`:
+```{r EDA}
+skimr::skim(air_mad)
+```
+
+
+::: infobox
+**NOTA IMPORTANTE:**
+
+Además, existen paquetes como `DataExplorer` y `dlookr` que generan informes 
+automáticos con los principales descriptivos.
+:::
+
+
+
+
+## ¿Cómo han evolucionado la concentración de contaminantes en la ciudad de Madrid?
+
+
+
+::: {#ex-evol .exercise name="Evolución diaria de los contaminates (2011-2022)"}
+
+Con las funciones del Tidyverse represente la evolución de todos los contaminantes medidos por las estaciones de monitoreo de la ciudad de Madrid en el periodo (2011-2022).
+:::
+
+```{r evolución-contaminentes, out.width = "100%"}
+plot_air_mad <- air_mad %>%
+  group_by(fecha, nom_mag) %>%
+  summarise(media_estaciones = mean(daily_mean, na.rm = TRUE)) %>%
+  ggplot(aes(x = fecha, y = media_estaciones)) +
+  geom_line() +
+  geom_smooth() +
+  facet_wrap( ~ nom_mag, scales = "free_y", ncol = 2)
+
+plot_air_mad
+
+```
+
+
+::: infobox
+**NOTA IMPORTANTE:**
+
+La representación gráfica es una de las herramientas más poderosas en el EDA siempre y cuando esté bien definida.
+:::
+
+
+::: {#ex-evol-sem .exercise name="Evolución semanal de los contaminates (2011-2022)"}
+
+Con las funciones del Tidyverse y la librería `lubridate` represente la evolución de todos los contaminantes medidos por las estaciones de monitoreo de la ciudad de Madrid en el periodo (2011-2022) 
+y personalice los plots con distintos colores.
+:::
+
+
+```{r evolución-contaminantes-personalizado, out.width = "100%"}
+air_mad %>% 
+  group_by(semana=floor_date(fecha,unit = "week"), nom_mag) %>%
+  summarise(media_estaciones=mean(daily_mean, na.rm=TRUE)) %>% 
+ggplot(aes(x=semana, y=media_estaciones))+
+  geom_line(aes(color=nom_mag))+
+  geom_smooth(size=0.5, color="black")+
+  scale_color_brewer(palette = "Paired")+
+  labs(x=NULL, y="(µg/m3)", title = "Evolución de partículas contaminantes en Madrid", 
+       subtitle = "Concentración media semanal en las estaciones de medición", 
+       caption = "Fuente: Portal de datos abiertos del Ayuntamiento de Madrid" )+
+  theme_minimal()+
+  theme(legend.position = "none")+
+  facet_wrap(~nom_mag, scales = "free_y", ncol = 2)
+
+```
+
+
+
+
+## Los datos faltantes
+
+Antes de continuar. No nos olvidemos de los datos faltantes, a veces
+un importante proble en ciencia de datos... ¿Existe algún patrón en los NAs?
+
+**¿Cuántos NAs tengo en mis datos?**
+
+```{r sum-na}
+sum(is.na(air_mad))
+```
+
+
+**¿Dónde están los NAs en mis datos?**
+```{r na-where}
+na_table <- air_mad %>%
+  mutate(isna = is.na(daily_mean)) %>%
+  ggplot(aes(x = fecha, y = id_name, fill = isna)) +
+  geom_raster(alpha = 0.8) +
+  theme(legend.position = "bottom")
+
+na_table
+
+```
+
+
+**¿Cuándo se han producido los Nas?**
+
+```{r}
+na_fechas <- air_mad %>%
+  filter(is.na(daily_mean)) %>%
+  group_by(id_name, fecha = floor_date(fecha, unit = "month")) %>%
+  summarise(num_nas = sum(is.na(daily_mean))) %>%
+  ungroup() %>%
+  mutate(fecha = paste0(year(fecha), "-", month(fecha, label = TRUE, abbr = FALSE))) %>%
+  arrange(desc(num_nas))
+
+```
+
+
+
+### ¿Qué hacemos con los NAs?
+
+
+**Opción 1: Eliminar los NAs**
+
+```{r}
+air_mad_clean <- air_mad %>%
+  drop_na()
+
+summary(is.na(air_mad_clean))
+
+```
+
+
+**Opción 2: Imputar NAs con día anterior**
+
+```{r}
+air_mad_dia_antes <- air_mad %>%
+  arrange(estaciones, nom_abv, fecha) %>%
+  fill(daily_mean)
+
+summary(is.na(air_mad_dia_antes))
+
+```
+
+
+
+
+## Selección de contaminantes para el estudio: PM10, NOx.
+
+A lo largo de los años, como se ha podido apreciar, el nivel de todos los 
+contaminantes estudiados ha descendido. Sin embargo, hay dos que aun presentan
+elevado número de superaciones del estandar legal y que son muy dañinos para la
+saludo: PM10 y NOx.
+
+Una herramienta muy útil para tener una visión general de estos contaminantes 
+viendo el calendario como un heatmap: **calendar heatmap**
+
+```{r calendar}
+calendar_plot <- air_mad %>%
+  group_by(fecha, nom_mag, nom_abv, ud_med) %>% 
+  summarize(valor_promedio = mean(daily_mean, na.rm = T))
+
+# Dates as factors
+months <-
+  seq.Date(from = as.Date("2022-01-01"),
+           length.out = 12,
+           by = "month") %>% format("%B")
+wdays <-
+  seq.Date(from = as.Date("2022-05-30"),
+           length.out = 7,
+           by = "day") %>% format("%A")
+
+calendar_plot <- calendar_plot %>% 
+  mutate(year = format(fecha, "%Y"),
+         month = factor(format(fecha, "%B"), levels = months, labels = months),
+         wday = factor(weekdays(fecha), levels = wdays, labels = wdays),
+         week = as.numeric(format(fecha, "%W")))
+calendar_plot <- calendar_plot %>% 
+  group_by(year, month) %>% 
+  mutate(wmonth = 1 + week - min(week))
+```
+
+
+**Calendar heatmap para NOx**
+
+```{r calendar-nox, fig.align='center', fig.height=22, fig.width=22}
+i_mag <- "Óxidos de Nitrógeno"
+fill_title <- calendar_plot %>%
+  filter(nom_mag == i_mag & year >= 2011) %>%
+  ungroup() %>% 
+  distinct(paste(unique(nom_abv), unique(ud_med)))
+
+calendar_plot %>% 
+  filter(nom_mag == i_mag & year >= 2011) %>% 
+  ggplot(aes(
+    x = wmonth,
+    y = reorder(wday, -as.numeric(wday)),
+    fill = valor_promedio
+  )) +
+  geom_tile(colour = "white") +
+  facet_grid(year ~ month) +
+  scale_fill_gradient(low = "yellow", high = "red", ) +
+  scale_x_continuous(breaks = 1:5, limits = c(0, 6)) +
+  labs(
+    x = "Semana del mes",
+    y = NULL,
+    title = paste0("Concentración de ", i_mag, " por día de la semana"),
+    fill = fill_title,
+    caption = "Fuente: Red de Vigilancia de la Calidad del Aire del Ayto. de Madrid"
+  )
+
+```
+
+
+**Calendar heatmap para PM10**
+
+```{r calendar-pm10, fig.align='center', fig.height=22, fig.width=22}
+i_mag <- "Partículas < 10 µm"
+fill_title <- calendar_plot %>%
+  filter(nom_mag == i_mag & year >= 2011) %>%
+  ungroup() %>% 
+  distinct(paste(unique(nom_abv), unique(ud_med)))
+
+calendar_plot %>% 
+  filter(nom_mag == i_mag & year >= 2011) %>% 
+  ggplot(aes(
+    x = wmonth,
+    y = reorder(wday, -as.numeric(wday)),
+    fill = valor_promedio
+  )) +
+  geom_tile(colour = "white") +
+  facet_grid(year ~ month) +
+  scale_fill_gradient(low = "yellow", high = "red", ) +
+  scale_x_continuous(breaks = 1:5, limits = c(0, 6)) +
+  labs(
+    x = "Semana del mes",
+    y = NULL,
+    title = paste0("Concentración de ", i_mag, " por día de la semana"),
+    fill = fill_title,
+    caption = "Fuente: Red de Vigilancia de la Calidad del Aire del Ayto. de Madrid"
+  )
+
+```
+
+
+::: {#ex-evol-pm10-nox .exercise name="Evolución temporal NOx y PM10 (2011-2022)"}
+Seleccione los dos contaminantes más problemáticos en la ciudad de Madrid (PM10 y NOx) y representelos en forma de serie temporal.
+:::
+
+
+```{r seleccionar-variables, fig.align='center', fig.height=7.4, fig.width=12}
+air_mad_pm10_nox <- air_mad %>%
+  filter(nom_abv %in% c("PM10", "NOx"))
+
+plot_pm10_nox <- air_mad_pm10_nox %>%
+  group_by(fecha, nom_mag) %>%
+  summarise(media_estaciones = mean(daily_mean, na.rm = TRUE)) %>%
+  ggplot(aes(x = fecha, y = media_estaciones)) +
+  geom_line(aes(color = nom_mag)) +
+  geom_smooth(size = 0.5, color = "black", se = FALSE) +
+  scale_color_brewer(palette = "Paired") +
+  labs(
+    x = NULL,
+    y = "(µg/m3)",
+    title = "Evolución semanal de partículas contaminantes (PM10 y NOx) en Madrid",
+    subtitle = "Concentración media semanal en las estaciones de medición",
+    caption = "Fuente: Portal de datos abiertos del Ayuntamiento de Madrid"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+  facet_wrap( ~ nom_mag, scales = "free_y", ncol = 1)
+
+plot_pm10_nox 
+
+
+```
+
+
+
+::: infobox
+**NOTA IMPORTANTE:**
+
+La función `ggplotly()` de la librería `plotly` permite hacer fácilmente gráficos interactivos. 
+:::
+
+¿Por qué no hacer el anterior gráfico interactivo con `plotly`?
+
+```{r pm10_nox_interactivo, fig.align='center', out.width='100%'}
+plotly:: ggplotly(plot_pm10_nox)
+
+```
+
+
+
+Una vez tratados los aspectos temporales de la variable, **¿por qué no analizar la dimensión espacial y el tipo de estación de monitoreo?**
+
+**Gráfico de densidad (Ridgeline) PM10 por `tipo` de estación**
+
+```{r den-tipo-ms, fig.align='center', fig.height=7.4, fig.width=12}
+air_mad %>%
+  filter(nom_abv == "PM10") %>%
+  ggplot(aes(x = daily_mean, y = tipo, fill = tipo)) +
+  geom_density_ridges() +
+  theme_ridges() +
+  scale_x_continuous(limits = c(0, 100), breaks = seq(0, 100, 10)) +
+  theme(legend.position = "none")
+
+```
+
+
+**Gráfico de densidad (Ridgeline) PM10 por `zona` de calidad del aire**
+
+```{r den-zona-mad-pm10, fig.align='center', fig.height=7.4, fig.width=12}
+air_mad %>%
+  filter(nom_abv == "NOx") %>%
+  ggplot(aes(x = daily_mean, y = zona, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 2, rel_min_height = 0.001) +
+  scale_fill_viridis(option = "C") +
+  scale_x_continuous(limits = c(0, 75), ) +
+  labs(title = 'Concentración de PM10 µm por tipo de estación en Madrid (2011-2022)') +
+  xlab("Concentración diaria (µg/m3)") +
+  theme_ipsum() +
+  theme(legend.position = "none",
+        strip.text.x = element_text(size = 8))
+
+```
+
+
+::: {#ex-zona-pm10 .exercise name="Contaminación NOx por zona  (2011-2022)"}
+
+Repita el análisis anterior para el PM10 y compruebe si la zona "Interior M-30" es la que presenta mayor contaminación o no
+:::
+
+¿Y por zona de calidad del aire?
+
+```{r den-zona-mad-nox, fig.align='center', fig.height=7.4, fig.width=12}
+air_mad %>%
+  filter(nom_abv == "NOx") %>%
+  ggplot(aes(x = daily_mean, y = zona, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 2, rel_min_height = 0.001) +
+  scale_fill_viridis(option = "C") +
+  scale_x_continuous(limits = c(0, 75), ) +
+  labs(title = 'Concentración de NOx µm por zona en Madrid (2011-2022)') +
+  xlab("Concentración diaria (µg/m3)") +
+  theme_ipsum() +
+  theme(legend.position = "none",
+        strip.text.x = element_text(size = 8))
+
+```
+
+
+
+::: {#ex-anova .exercise name="ANOVA"}
+
+Compruebe con un Análisis de la Varianza si los niveles de concentración de PM10
+dependen de las variables tipo y zona
+:::
+
+
+```{r anova}
+air_mad_anova <- air_mad %>%
+  filter(nom_abv == "NOx") %>%
+  drop_na()
+
+anova <- aov(data = air_mad_anova, daily_mean ~ zona + tipo)
+summary(anova)
+
+anova2 <- lm(data = air_mad_anova, daily_mean ~ zona + tipo)
+summary(anova2)
+
+```
+
+
+```{r, fig.align='center', fig.height=12, fig.width=22}
+
+# select(PM10) by_group (estación de monitoreo) y gráfico de violín (ggstatsplot) para ver en el periodo cual ha sido la estación que ha registrado valores más altos.
+
+air_mad %>%
+  filter(nom_abv == "PM10") %>%
+  filter(daily_mean < 1000) %>%
+  filter(between(
+    fecha,
+    left = as.Date("2021-05-01"),
+    right = as.Date("2022-04-30")
+  )) %>%
+  ggbetweenstats(
+    x = id_name,
+    y = daily_mean,
+    xlab = "Estación de medida",
+    ylab = "Concentración diaria (µg/m3)",
+    plot.type = "boxviolin",
+    # outlier.tagging = TRUE,
+    # outlier.coef = 1.5,
+    # outlier.label = fecha,
+    # outlier.label.args = list(color = "red", size=1),
+    title = "Grafico comparativo entre estaciones de concentración de PM10",
+    subtitle = "Madrid. Mayo 2021 - abril 2022.",
+    caption = "Fuente: Portal de datos abiertos del Ayuntamiento de Madrid",
+  )
+
+```
+
+
+**¿Qué pasó en la semana de la calima con el PM10?**
+
+```{r, fig.align='center', fig.height=7.4, fig.width=12}
+particulas <- c("Partículas < 2.5 µm", "Partículas < 10 µm")
+
+calima <- air_mad %>%
+  filter(nom_mag %in% particulas &
+           fecha %in% seq.Date(as.Date("2022-03-01"), by = "day", length.out = 31)) %>%
+  group_by(fecha, id, id_name, nom_mag, nom_abv, ud_med) %>%
+  summarize(valor_promedio = mean(daily_mean, na.rm = T))
+
+
+max_2.5 <- calima %>%
+  ungroup() %>%
+  filter(nom_mag == particulas[1]) %>%
+  slice(which.max(valor_promedio))
+max_10 <- calima %>%
+  ungroup() %>%
+  filter(nom_mag == particulas[2]) %>%
+  slice(which.max(valor_promedio))
+
+calima %>%
+  ggplot(aes(fecha, valor_promedio, colour = nom_mag)) +
+  geom_jitter() +
+  geom_smooth(
+    method = "loess",
+    span = .5,
+    se = FALSE,
+    show.legend = FALSE
+  ) +
+  scale_x_date(breaks = seq.Date(as.Date("2022-03-01"), by = "week", length.out = 5),
+               date_labels =  "%d-%b") +
+  scale_color_manual(values = c("#261606", "#DD9C4A")) +
+  geom_label_repel(
+    data = max_10,
+    mapping = aes(fecha, valor_promedio, label = paste(id_name)),
+    show.legend = FALSE
+  ) +
+  geom_label_repel(
+    data = max_2.5,
+    mapping = aes(fecha, valor_promedio, label = paste(id_name)),
+    show.legend = FALSE
+  ) +
+  labs(
+    title = "Registro de partículas durante el mes de marzo 2022",
+    subtitle = "Madrid",
+    x = NULL,
+    y = unique(calima$ud_med),
+    color = NULL,
+    caption = "Fuente: Red de Vigilancia de la Calidad del Aire del Ayto. de Madrid\nElaboración: Michal Kinel"
+  ) +
+  theme(
+    legend.position = 'bottom',
+    panel.background = element_rect(
+      fill = "#f4dbb3",
+      colour = "#f4dbb3",
+      size = 0.5,
+      linetype = "solid"
+    ),
+    plot.background = element_rect(fill = "#DD9C4A"),
+    text = element_text(family = "helvetica", colour = "#261606"),
+    legend.background = element_rect(fill = "#DD9C4A"),
+    legend.key = element_rect(fill = "#f4dbb3", color = NA)
+  )
+
+```
+
+
+
+
+## Predicción espacial del PM10 (calima del 13-17 marzo)
+
+
+```{r, fig.align='center', out.width='100%', fig.height=7.4, fig.width=12}
+# idw
+mad_sf <- esp_get_munic(munic = "^Madrid$", epsg = 4326)
+
+marzo_pm10 <- air_mad %>%
+  filter(nom_abv == "PM10" &
+           fecha >= as.Date("2022-03-13") & fecha <= as.Date("2022-03-17")) %>%
+  drop_na()
+
+madrid_estaciones_sf <- st_as_sf(marzo_pm10,
+                                 coords = c("longitud", "latitud"),
+                                 crs = 4326)
+
+ggplot(madrid_estaciones_sf) +
+  geom_sf(data = mad_sf,
+          fill = "grey95") +
+  geom_sf(
+    aes(fill = daily_mean),
+    shape = 21,
+    size = 5,
+    alpha = .7
+  ) +
+  labs(fill = "PM10") +
+  scale_fill_viridis_c() +
+  theme_void() +
+  labs(title = "PM10: {current_frame}") +
+  transition_manual(fecha) +
+  ease_aes('linear') +
+  theme(
+    plot.title = element_text(size = 12,
+                              face = "bold"),
+    plot.subtitle = element_text(size = 8,
+                                 face = "italic")
+  )
+
+
+```
+
+
+
+```{r}
+# We choose to project our objects to ETRS89 / UTM zone 30N EPSG:25830, which provides projected x and y values in meters and maximizes the accuracy for Spain.
+
+madrid_estaciones_utm <- st_transform(madrid_estaciones_sf, 25830)
+mad_utm <- st_transform(mad_sf, 25830)
+
+test_day <- madrid_estaciones_utm %>% filter(fecha == "2022-03-13")
+
+extent_mad_utm <- extent(mad_utm)
+
+grid_mad_utm <-
+  expand.grid(
+    x = seq(
+      from = round(extent_mad_utm@xmin),
+      to = round(extent_mad_utm@xmax),
+      by = 500
+    ),
+    y = seq(
+      from = round(extent_mad_utm@ymin),
+      to = round(extent_mad_utm@ymax),
+      by = 500
+    )
+  )
+
+coordinates(grid_mad_utm) <- ~ x + y
+grid_mad_utm <- st_as_sf(grid_mad_utm)
+st_crs(grid_mad_utm) <- st_crs(mad_utm)
+grid_mad_utm <- as(grid_mad_utm, "Spatial")
+gridded(grid_mad_utm) <- TRUE
+
+neighbors <- length(test_day)
+beta <- 2
+
+interp_pm10 = gstat::gstat(
+  formula = daily_mean ~ 1,
+  # intercept only model
+  data = test_day,
+  nmax = neighbors,
+  set = list(idp = beta)
+)
+
+grid_interp_pm10 <-
+  predict(object = interp_pm10, newdata = grid_mad_utm)
+
+```
+
+
+```{r, fig.align='center', out.width='100%', fig.height=7.4, fig.width=12}
+plot(grid_interp_pm10, main = "IDW  PM10 µg/m³")
+plot(st_geometry(mad_utm), add = TRUE, border = "white")
+plot(
+  st_geometry(madrid_estaciones_utm),
+  add = TRUE,
+  pch = 19,
+  cex = 0.5,
+  col = "green"
+)
+
+```
+
+
+
